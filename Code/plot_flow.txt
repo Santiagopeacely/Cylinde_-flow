@@ -1,0 +1,35 @@
+3kaclear all
+X=load("X.txt");
+Y=load("Y.txt");
+U=load("U950.txt");
+V=load("V950.txt");
+PSI=load("PSI950.txt");
+W=load("W950.txt");
+M=101;
+N=101;
+figure(1)
+quiver(X,Y,U,V,1);
+axis equal
+% hold on
+figure(2)
+contour(X,Y,W,100);
+axis equal
+figure(3)
+contour(X,Y,PSI,100);
+axis equal;
+%streamline(X,Y,U,V);
+% for i=1:M
+%     plot(X(i,:),Y(i,:),'-b');
+% end
+% 
+% for j=2:N-1
+%     plot(X(:,j),Y(:,j),'-b');
+% end
+
+%  figure(2)
+%  quiver(X,Y,U,V)
+% 
+% startx = -20:0.5:20;
+% starty = zeros(size(startx));
+% streamline(X,Y,U,V,startx,starty)
+% axis equal

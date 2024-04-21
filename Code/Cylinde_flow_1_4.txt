@@ -1,0 +1,238 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import math
+
+import meshio
+ 
+
+mesh = meshio.read("D:/area_24.0_14.4_gird2.msh")
+ 
+
+points = mesh.points  
+cells = mesh.cells    
+
+ 
+NP = points.shape[0]
+NE = [cell_data for cell_data in cells if cell_data.type == 'triangle'][0].data.shape[0]
+ 
+
+X = np.zeros((NP, 2),dtype = float)
+X = points[:,0:2]
+X2 = np.zeros((NP, 2),dtype = float)
+X2[:,0] = points[:,0]
+X2[:,1] = - points[:,1]
+
+NOD = np.zeros((NE,3),dtype = int)
+NOD = [cell_data for cell_data in cells if cell_data.type == 'triangle'][0].data
+
+
+
+try:
+    with open('cylinder.dat', 'r') as f:
+        
+        line = f.readline().strip()
+        NP, NE_max = map(int, line.split())
+ 
+        
+        X = np.zeros((NP, 2),dtype = float)
+        for i in range(NP):
+            line = f.readline().strip()
+            X[i] = np.array(list(map(float, line.split())))
+ 
+        
+        NOD = np.zeros((NE_max,3),dtype = int)
+        NE=0 
+        for i in range(NE_max):
+            line = f.readline().strip()
+ 
+                NOD[i] = np.array(list(map(int, line.split())))-1 
+                NE+=1
+            else:
+                break
+            
+ 
+except FileNotFoundError:
+    print("not exist")
+except Exception as e:
+    print("failed：", e)
+ 
+NOD = NOD[:NE, :]
+
+
+gamma = 5 
+r = 1
+Rx= X[:,0].max()- X[:,0].min()
+Ry = X[:,1].max()- X[:,1].min()
+
+
+Ψ = np.zeros(NP)
+substantial_bound_index = []
+unknown_index = []
+for i in range(NP):
+    if X[i,1] == 0 :
+        Ψ[i] = - gamma*np.log(abs(X[i,0]))/(2*math.pi)
+        substantial_bound_index.append(i)
+    elif X[i,1] == Ry:
+        Ψ[i] = Ry - gamma*np.log(abs(Rx))/(2*math.pi)
+        substantial_bound_index.append(i)
+    elif X[i,0] == -Rx:
+        Ψ[i] = X[i,1] - gamma*np.log(Rx)/(2*math.pi)
+        substantial_bound_index.append(i)
+    elif abs(X[i,0]**2 + X[i,1]**2 - r*r)<= 1e-3:
+        Ψ[i] = - gamma*np.log(r)/(2*math.pi)
+        substantial_bound_index.append(i)
+    else:
+        unknown_index.append(i)
+
+
+for i in substantial_bound_index:
+    if(X[i,1]<=3 and X[i,0]>=-4):
+        plt.scatter(X[i,0],X[i,1],alpha = 0.5,s=2)
+plt.show()
+
+import scipy.sparse as sp
+import scipy.sparse.linalg as splinalg
+ 
+A_overall = sp.lil_matrix((NP,NP), dtype=float)
+f_overall = np.zeros(NP) 
+ 
+for i in range(NE):
+    X_i = np.zeros(3)
+    Y_i = np.zeros(3)
+    node_index = np.zeros(3)
+    node_index = NOD[i,:] #是从0开始的
+    X_i = X[node_index,0]
+    Y_i = X[node_index,1]
+    # print(X[2,1])
+    A = 0.5*((X_i[1]-X_i[0])*(Y_i[2]-Y_i[0])-(Y_i[1]-Y_i[0])*(X_i[2]-X_i[0]))
+    # print(i,A)
+
+    if A==0:
+        continue
+    
+    b1 = (Y_i[1]-Y_i[2])/(2*A)
+    b2 = (Y_i[2]-Y_i[0])/(2*A)
+    b3 = (Y_i[0]-Y_i[1])/(2*A)
+    c1 = -(X_i[1]-X_i[2])/(2*A)
+    c2 = -(X_i[2]-X_i[0])/(2*A)
+    c3 = -(X_i[0]-X_i[1])/(2*A)
+    A_overall[node_index[0],node_index[0]] += b1*b1 + c1*c1
+    A_overall[node_index[1],node_index[1]] += b2*b2 + c2*c2
+    A_overall[node_index[2],node_index[2]] += b3*b3 + c3*c3
+    
+    A_overall[node_index[0],node_index[1]] += b1*b2+c1*c2
+    A_overall[node_index[1],node_index[0]] += b1*b2+c1*c2
+    
+    A_overall[node_index[0],node_index[2]] += b1*b3+c1*c3
+    A_overall[node_index[2],node_index[0]] += b1*b3+c1*c3
+    
+    A_overall[node_index[1],node_index[2]] += b2*b3+c2*c3
+    A_overall[node_index[2],node_index[1]] += b2*b3+c2*c3
+
+
+for i in unknown_index:
+    sum_f = 0
+    for j in substantial_bound_index:
+        sum_f += (-1)*A_overall[i,j]* Ψ[j]
+    f_overall[i] = sum_f
+
+
+import bisect
+A_overall_coo = A_overall.tocoo()
+A_tosolve = sp.lil_matrix((len(unknown_index), len(unknown_index)), dtype=float)
+ 
+for i, j, val in zip(A_overall_coo.row, A_overall_coo.col, A_overall_coo.data): 
+    idx_i = bisect.bisect_left(unknown_index, i)
+    idx_j = bisect.bisect_left(unknown_index, j)
+ 
+    if idx_i < len(unknown_index) and unknown_index[idx_i] == i and idx_j < len(unknown_index) and unknown_index[idx_j] == j:
+        A_tosolve[idx_i, idx_j] = val
+ 
+ 
+f_tosolve = f_overall[np.ix_(unknown_index)]
+csc_A_tosolve = A_tosolve.tocsc()
+
+sol = splinalg.spsolve(csc_A_tosolve, f_tosolve)
+
+
+pos = 0
+for i in unknown_index:
+    Ψ[i] = sol[pos]
+    pos+=1
+
+vx = np.zeros(NE)
+vy = np.zeros(NE)
+ 
+
+node_sum_area = np.zeros(NP) 
+vx_node = np.zeros(NP)
+vy_node = np.zeros(NP)
+ 
+
+for i in range(NE):
+    X_i = np.zeros(3)
+    Y_i = np.zeros(3)
+    node_index = np.zeros(3)
+    node_index = NOD[i,:] #是从0开始
+    X_i = X[node_index,0]
+    Y_i = X[node_index,1]
+    
+    A = 0.5*((X_i[1]-X_i[0])*(Y_i[2]-Y_i[0])-(Y_i[1]-Y_i[0])*(X_i[2]-X_i[0]))
+        continue
+    
+    b1 = (Y_i[1]-Y_i[2])/(2*A)
+    b2 = (Y_i[2]-Y_i[0])/(2*A)
+    b3 = (Y_i[0]-Y_i[1])/(2*A)
+    c1 = -(X_i[1]-X_i[2])/(2*A)
+    c2 = -(X_i[2]-X_i[0])/(2*A)
+    c3 = -(X_i[0]-X_i[1])/(2*A)
+    
+    vx[i] = c1*Ψ[NOD[i,0]]+c2*Ψ[NOD[i,1]]+c3*Ψ[NOD[i,2]]
+    vy[i] = -b1*Ψ[NOD[i,0]]-b2*Ψ[NOD[i,1]]-b3*Ψ[NOD[i,2]]
+ 
+
+    for j in range(3):
+        s0 = node_sum_area[NOD[i,j]]
+        vx0 = vx_node[NOD[i,j]]
+        vx_node[NOD[i,j]] = (s0*vx0+A*vx[i])/(s0+A)
+        vy0 = vy_node[NOD[i,j]]
+        vy_node[NOD[i,j]] = (s0*vy0+A*vy[i])/(s0+A)
+        node_sum_area[NOD[i,j]]+= A
+        
+
+p_node = np.zeros(NP)
+for i in range(NP):
+    p_node[i] = 0.5*(1-vx_node[i]**2 - vy_node[i]**2)
+
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.tri import Triangulation
+ 
+ 
+def are_points_collinear(p1, p2, p3):
+    """
+   Check if the three points are collinear
+    """
+    return abs(p1[0] * (p2[1] - p3[1]) + p2[0] * (p3[1] - p1[1]) + p3[0] * (p1[1] - p2[1])) <= 1e-16
+
+valid_triangles = []
+for triangle in NOD:
+    p1, p2, p3 = X[triangle[0]], X[triangle[1]], X[triangle[2]]
+    if not are_points_collinear(p1, p2, p3):
+
+        valid_triangles.append(triangle)
+ 
+ 
+tri = Triangulation(X[:, 0], X[:, 1],triangles=valid_triangles)
+
+
+z = Ψ
+levels = np.linspace(z.min(), z.max(), 80)
+plt.tricontour(tri, z, levels=levels, colors='k')
+plt.tricontourf(tri, z, levels=levels, cmap='viridis')
+plt.colorbar()
+plt.title('streamline _num')
+plt.show()
+ 
+for i in range(NP):
+    Ψ_true[i] = X[i, 1]*(1-1/(X[i,0]**2 + X[i,1]**2)) - gamma*np.log(X[i,0]**2 + X[i,1]**2)/(2*np.pi)
