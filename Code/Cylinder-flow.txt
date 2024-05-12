@@ -12,8 +12,8 @@ using namespace Eigen;
 #include <stdio.h>
 #define random(x) (rand()%x)
 double d = 0.01; //diameter of circle
-double H = 0.1; 
-double L = 0.25;
+double Y = 0.1; 
+double X = 0.25;
 #define M  100 //number of mesh along x
 #define N  100 //number of mesh along y
 double Re = 150;
